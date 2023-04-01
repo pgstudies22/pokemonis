@@ -1,17 +1,42 @@
-const renderPokemons = pokemonsInfo => {
+const getTypeColor = type => ({
+  steel: '#f4f4f4',
+  fire: '#FDDFDF',
+  grass: '#DEFDE0',
+  electric: '#FCF7DE',
+  ice: '#DEF3FD',
+  water: '#DEF3FD',
+  ground: '#f4e7da',
+  rock: '#d5d5d4',
+  fairy: '#fceaff',
+  poison: '#98d7a5',
+  bug: '#f8d5a3',
+  ghost: '#cac0f7',
+  dragon: '#97b3e6',
+  psychic: '#eaeda1',
+  flying: '#F5F5F5',
+  fighting: '#E6E0D4',
+  normal: '#F5F5F5'
+})[type] || '#F5F5F5'
+
+const renderPokemons = pokemons => {
   const ul = document.querySelector('ul')
   const fragment = document.createDocumentFragment()
-
-  pokemonsInfo.forEach(({ id, name, type, imgURL }) => {
+  
+  pokemons.forEach(({ id, name, types, imgUrl }) => {
     const li = document.createElement('li')
     const img = document.createElement('img')
-    const nameContainer = document.createElement('p')
+    const nameContainer = document.createElement('h2')
     const typeContainer = document.createElement('p')
+    const [firstType] = types
 
-    img.setAttribute('src', imgURL)
+    img.setAttribute('src', imgUrl)
+    img.setAttribute('alt', name)
+    img.setAttribute('class', 'card-image')
+    li.setAttribute('class', `card ${firstType}`)
+    li.style.setProperty('--type-color', getTypeColor(firstType))
 
-    nameContainer.textContent = `${id} ${name[0].toUpperCase()}${name.slice(1)}`
-    typeContainer.textContent = type
+    nameContainer.textContent = `${id}. ${name[0].toUpperCase()}${name.slice(1)}`
+    typeContainer.textContent = types.length > 1 ? types.join(' | ') : firstType
     li.append(img, nameContainer, typeContainer)
     fragment.append(li)
   })
@@ -25,53 +50,70 @@ const getOnlyFulfilled = async ({ arr, func }) => {
   return responses.filter(r => r.status === 'fulfilled')
 }
 
-const fetchPokemons = async () => {
-  const promises = await getOnlyFulfilled({ arr: Array.from({ length: 15 }, (_, i) => i + 1), func: id => fetch(`https://pokeapi.co/api/v2/pokemon/${id}`) })
-  const x = promises.map(o => o.value.json())
-  return Promise.all(x)
+const observeLastPokemon = pokemonsObserver => {
+  const lastPokemon = document.querySelector('ul').lastChild
+  pokemonsObserver.observe(lastPokemon)
 }
 
-const getPokemonsURL = ({ url }) => fetch(url)
-const getPokemonsIMG = (_, i) => fetch(`https://raw.githubusercontent.com/RafaelSilva2k22/PokemonImages/main/images/${i + 1}.png`)
-
-let counter = 15
-
-const renderMorePokemons = async observer => {
-  if (counter >= 150) {
-    return
-  }
-
-  const promises = await getOnlyFulfilled({ arr: Array.from({ length: 15 }, (_, i) => counter += 1), func: id => fetch(`https://pokeapi.co/api/v2/pokemon/${id}`) })
-  const x = promises.map(o => o.value.json())
-  const pokemons = await Promise.all(x)
-  const filteredImgs = await getOnlyFulfilled({ arr: pokemons, func: (_, i) => fetch(`https://raw.githubusercontent.com/RafaelSilva2k22/PokemonImages/main/images/${pokemons[i].id}.png`) })
-  const pokemonsInfo = pokemons.map((p, i) => ({ id: p.id, name: p.name, type: p.types.map(o => o.type.name).join(' | '), imgURL: filteredImgs[i].value.url }))
-
-  renderPokemons(pokemonsInfo)
-  observer.observe(document.querySelector('ul').lastChild)
-}
-
-const handlePageLoad = async () => {
-  const pokemons = await fetchPokemons()
-  const filteredImgs = await getOnlyFulfilled({ arr: pokemons, func: getPokemonsIMG })
-  const pokemonsInfo = pokemons.map((p, i) => ({ id: p.id, name: p.name, type: p.types.map(o => o.type.name).join(' | '), imgURL: filteredImgs[i].value.url }))
-
-  renderPokemons(pokemonsInfo)
-
-  const lastLiObserver = new IntersectionObserver((entries, observer) => {
-    const lastPokemon = entries[0]
-    
+const handleNextPokemonsRender = url => {
+  const pokemonsObserver = new IntersectionObserver(async ([lastPokemon], observer) => {
     if (!lastPokemon.isIntersecting) {
-      console.log('último pokemon NÃO ESTÁ na pág')
       return
     }
 
-    console.log('25% do último pokemon ESTÁ na pág. Renderize os próximos 15')
-    renderMorePokemons(observer)
     observer.unobserve(lastPokemon.target)
-  }, { threshold: 0.25, rootMargin: '100px' })
 
-  lastLiObserver.observe(document.querySelector('ul').lastChild)
+    const { pokemons } = await getPokemons(url)
+
+    renderPokemons(pokemons)
+    observeLastPokemon(pokemonsObserver)
+  }, { threshold: 0.25, rootMargin: '400px' })
+
+  observeLastPokemon(pokemonsObserver)
+}
+
+const getPokemonsType = async pokeApiResults => {
+  const resultTypes = pokeApiResults.map(result => fetch(result.url))
+  const settledResultTypes = await Promise.allSettled(resultTypes)
+  const fulfilledResults = settledResultTypes.filter(q => q.status === 'fulfilled').map(t => t.value.json())
+  const resolvedFulfilledResults = await Promise.all(fulfilledResults)
+  return resolvedFulfilledResults.map(resolved => resolved.types.map(t => t.type.name))
+}
+
+const getPokemonsImgs = async ids => {
+  const imgResponses = ids.map(id => fetch(`./assets/img/${id}.png`))
+  const imgPromises = await Promise.allSettled(imgResponses)
+  return imgPromises.filter(q => q.status === 'fulfilled').map(t => t.value.url)
+}
+
+const getPokemonsIds = pokeApiResults => pokeApiResults
+  .map(({ url }) => url.split('/')[url.split('/').length - 2])
+
+const getPokemons = async url => {
+  try {
+    const response = await fetch(url)
+
+    if (!response.ok) {
+      throw new Error('Não foi possível obter as informações')
+    }
+
+    const { next, results: pokeApiResults } = await response.json()
+    const types = await getPokemonsType(pokeApiResults)
+    const ids = getPokemonsIds(pokeApiResults)
+    const imgUrls = await getPokemonsImgs(ids)
+    const pokemons = ids.map((id, i) => ({ id, name: pokeApiResults[i].name, types: types[i], imgUrl: imgUrls[i] }))
+
+    return { pokemons, next }
+  } catch (error) {
+    console.log('Algo deu errado:', error)
+  }
+}
+
+const handlePageLoad = async () => {
+  const { pokemons, next } = await getPokemons('https://pokeapi.co/api/v2/pokemon?offset=0&limit=15')
+
+  renderPokemons(pokemons)
+  handleNextPokemonsRender(next)
 }
 
 handlePageLoad()

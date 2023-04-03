@@ -55,29 +55,30 @@ const observeLastPokemon = pokemonsObserver => {
   pokemonsObserver.observe(lastPokemon)
 }
 
-const limit = 15
-let offset = 0
-
-const getPokemons = async ({ offset, limit }) => {
+const getPokemons = async url => {
   try {
-    const response = await fetch(`https://pokeapi.co/api/v2/pokemon?offset=${offset}&limit=${limit}`)
+    const response = await fetch(url)
 
     if (!response.ok) {
       throw new Error('Não foi possível obter as informações')
     }
 
-    const { results: pokeApiResults } = await response.json()
+    const { next, results: pokeApiResults } = await response.json()
     const types = await getPokemonsType(pokeApiResults)
     const ids = getPokemonsIds(pokeApiResults)
     const imgUrls = await getPokemonsImgs(ids)
     const pokemons = ids.map((id, i) => ({ id, name: pokeApiResults[i].name, types: types[i], imgUrl: imgUrls[i] }))
-    offset += limit
 
-    return pokemons
+    return { pokemons, next }
   } catch (error) {
     console.log('Algo deu errado:', error)
   }
 }
+
+const limit = 15
+let offset = 0
+
+const getUrl = ({ offset, limit }) => `https://pokeapi.co/api/v2/pokemon?offset=${offset}&limit=${limit}`
 
 const handleNextPokemonsRender = () => {
   const pokemonsObserver = new IntersectionObserver(async ([lastPokemon], observer) => {
@@ -91,7 +92,9 @@ const handleNextPokemonsRender = () => {
       return
     }
     
-    const pokemons = await getPokemons({ offset, limit })
+    const url = getUrl({ offset, limit })
+    const { pokemons } = await getPokemons(url)
+    offset += limit
 
     renderPokemons(pokemons)
     observeLastPokemon(pokemonsObserver)
@@ -118,7 +121,9 @@ const getPokemonsIds = pokeApiResults => pokeApiResults
   .map(({ url }) => url.split('/')[url.split('/').length - 2])
 
 const handlePageLoad = async () => {
-  const pokemons = await getPokemons({ offset, limit })
+  const url = getUrl({ offset, limit })
+  const { pokemons } = await getPokemons(url)
+  offset += limit
 
   renderPokemons(pokemons)
   handleNextPokemonsRender()

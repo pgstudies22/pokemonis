@@ -55,7 +55,32 @@ const observeLastPokemon = pokemonsObserver => {
   pokemonsObserver.observe(lastPokemon)
 }
 
-const handleNextPokemonsRender = url => {
+const getPokemons = async url => {
+  try {
+    const response = await fetch(url)
+
+    if (!response.ok) {
+      throw new Error('Não foi possível obter as informações')
+    }
+
+    const { next, results: pokeApiResults } = await response.json()
+    const types = await getPokemonsType(pokeApiResults)
+    const ids = getPokemonsIds(pokeApiResults)
+    const imgUrls = await getPokemonsImgs(ids)
+    const pokemons = ids.map((id, i) => ({ id, name: pokeApiResults[i].name, types: types[i], imgUrl: imgUrls[i] }))
+
+    return { pokemons, next }
+  } catch (error) {
+    console.log('Algo deu errado:', error)
+  }
+}
+
+const limit = 15
+let offset = 0
+
+const getUrl = ({ offset, limit }) => `https://pokeapi.co/api/v2/pokemon?offset=${offset}&limit=${limit}`
+
+const handleNextPokemonsRender = () => {
   const pokemonsObserver = new IntersectionObserver(async ([lastPokemon], observer) => {
     if (!lastPokemon.isIntersecting) {
       return
@@ -63,7 +88,13 @@ const handleNextPokemonsRender = url => {
 
     observer.unobserve(lastPokemon.target)
 
+    if (offset >= 150) {
+      return
+    }
+    
+    const url = getUrl({ offset, limit })
     const { pokemons } = await getPokemons(url)
+    offset += limit
 
     renderPokemons(pokemons)
     observeLastPokemon(pokemonsObserver)
@@ -89,31 +120,13 @@ const getPokemonsImgs = async ids => {
 const getPokemonsIds = pokeApiResults => pokeApiResults
   .map(({ url }) => url.split('/')[url.split('/').length - 2])
 
-const getPokemons = async url => {
-  try {
-    const response = await fetch(url)
-
-    if (!response.ok) {
-      throw new Error('Não foi possível obter as informações')
-    }
-
-    const { next, results: pokeApiResults } = await response.json()
-    const types = await getPokemonsType(pokeApiResults)
-    const ids = getPokemonsIds(pokeApiResults)
-    const imgUrls = await getPokemonsImgs(ids)
-    const pokemons = ids.map((id, i) => ({ id, name: pokeApiResults[i].name, types: types[i], imgUrl: imgUrls[i] }))
-
-    return { pokemons, next }
-  } catch (error) {
-    console.log('Algo deu errado:', error)
-  }
-}
-
 const handlePageLoad = async () => {
-  const { pokemons, next } = await getPokemons('https://pokeapi.co/api/v2/pokemon?offset=0&limit=15')
+  const url = getUrl({ offset, limit })
+  const { pokemons } = await getPokemons(url)
+  offset += limit
 
   renderPokemons(pokemons)
-  handleNextPokemonsRender(next)
+  handleNextPokemonsRender()
 }
 
 handlePageLoad()
